@@ -6,6 +6,8 @@ import {
   Clock, Activity, Wifi, PhoneCall
 } from "lucide-react";
 import { activeCalls as initialCalls, formatDuration, type ActiveCall } from "../data/voipData";
+import { useAppStore } from "../store/useAppStore";
+import { sipService } from "../services/sipManager";
 
 const stateConfig = {
   connected: { label: "متصل", color: "#30d158", bg: "#30d15815" },
@@ -204,6 +206,9 @@ function CallCard({ call, onAction }: { call: ActiveCall; onAction: (id: string,
 export function ActiveCalls() {
   const [calls, setCalls] = useState<ActiveCall[]>(initialCalls);
   const [totalTime, setTotalTime] = useState(0);
+  const [dialNumber, setDialNumber] = useState("");
+
+  const { isConnected } = useAppStore();
 
   useEffect(() => {
     const interval = setInterval(() => setTotalTime(t => t + 1), 1000);
@@ -224,8 +229,32 @@ export function ActiveCalls() {
     }));
   };
 
+  const handleMakeCall = () => {
+    if (!dialNumber) return;
+    if (isConnected) {
+      sipService.makeCall(dialNumber);
+    }
+    // Add mock active call for UI visualization
+    setCalls(prev => [{
+      id: Date.now().toString(),
+      state: "connecting",
+      caller: useAppStore.getState().extension,
+      callerName: "شما",
+      called: dialNumber,
+      calledName: "در حال تماس...",
+      duration: 0,
+      codec: "opus",
+      quality: 100,
+      isMuted: false,
+      isRecording: false,
+      channel: `SIP/${useAppStore.getState().extension}-000000${Math.floor(Math.random() * 100)}`,
+      dstChannel: `SIP/${dialNumber}-000000${Math.floor(Math.random() * 100)}`
+    }, ...prev]);
+    setDialNumber("");
+  };
+
   const connected = calls.filter(c => c.state === "connected").length;
-  const ringing = calls.filter(c => c.state === "ringing").length;
+  const ringing = calls.filter(c => c.state === "ringing" || c.state === "connecting").length;
   const onHold = calls.filter(c => c.state === "on_hold").length;
 
   return (
@@ -301,42 +330,51 @@ export function ActiveCalls() {
         )}
       </AnimatePresence>
 
-      {/* Make new call panel */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
-        className="mt-6 rounded-xl p-4"
-        style={{ background: "rgba(10,12,30,0.8)", border: "1px solid rgba(0,212,255,0.1)" }}
-      >
-        <h3 className="text-sm mb-3" style={{ color: "#e0e0f0" }}>تماس جدید</h3>
-        <div className="flex gap-3">
-          <input
-            className="flex-1 px-3 py-2 rounded-lg text-sm outline-none"
-            placeholder="شماره یا داخلی..."
-            style={{
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid rgba(0,212,255,0.15)",
-              color: "#e0e0f0",
-            }}
-          />
-          <button className="px-4 py-2 rounded-lg text-sm flex items-center gap-2 transition-all"
-            style={{ background: "linear-gradient(135deg, #00d4ff20, #00d4ff10)", border: "1px solid rgba(0,212,255,0.3)", color: "#00d4ff" }}>
-            <Phone size={14} />
-            برقراری تماس
-          </button>
-        </div>
-
-        {/* Quick dial */}
-        <div className="flex flex-wrap gap-2 mt-3">
-          {["100", "101", "102", "103", "104", "105"].map(ext => (
-            <button key={ext} className="px-3 py-1 rounded-lg text-xs transition-all"
-              style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", color: "#8e8ea0" }}>
-              {ext}
+        {/* Make new call panel */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="mt-6 rounded-xl p-4"
+          style={{ background: "rgba(10,12,30,0.8)", border: "1px solid rgba(0,212,255,0.1)" }}
+        >
+          <h3 className="text-sm mb-3" style={{ color: "#e0e0f0" }}>تماس جدید</h3>
+          <div className="flex gap-3">
+            <input
+              value={dialNumber}
+              onChange={(e) => setDialNumber(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleMakeCall()}
+              className="flex-1 px-3 py-2 rounded-lg text-sm outline-none font-mono"
+              placeholder="شماره یا داخلی..."
+              style={{
+                background: "rgba(255,255,255,0.04)",
+                border: "1px solid rgba(0,212,255,0.15)",
+                color: "#e0e0f0",
+              }}
+            />
+            <button 
+              onClick={handleMakeCall}
+              disabled={!dialNumber}
+              className="px-4 py-2 rounded-lg text-sm flex items-center gap-2 transition-all disabled:opacity-50"
+              style={{ background: "linear-gradient(135deg, #00d4ff20, #00d4ff10)", border: "1px solid rgba(0,212,255,0.3)", color: "#00d4ff" }}>
+              <Phone size={14} />
+              برقراری تماس
             </button>
-          ))}
-        </div>
-      </motion.div>
+          </div>
+
+          {/* Quick dial */}
+          <div className="flex flex-wrap gap-2 mt-3">
+            {["100", "101", "102", "103", "104", "105"].map(ext => (
+              <button 
+                key={ext} 
+                onClick={() => setDialNumber(ext)}
+                className="px-3 py-1 rounded-lg text-xs transition-all hover:bg-white/10"
+                style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", color: "#8e8ea0" }}>
+                {ext}
+              </button>
+            ))}
+          </div>
+        </motion.div>
     </div>
   );
 }

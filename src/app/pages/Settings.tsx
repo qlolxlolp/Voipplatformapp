@@ -1,15 +1,16 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import {
   Server, Phone, Wifi, Lock, Database, Save,
   RotateCcw, CheckCircle2, AlertTriangle, Cpu,
   Globe, Radio, Volume2, Shield
 } from "lucide-react";
-import { MOTHER_NUMBER, SERVER_IP, SERVER_PORT } from "../data/voipData";
+import { useAppStore } from "../store/useAppStore";
+import { sipService } from "../services/sipManager";
 
 const tabs = [
   { id: "server", label: "سرور SIP", icon: Server },
-  { id: "sip", label: "تنظیمات SIP", icon: Phone },
+  { id: "sip", label: "تنظیمات اتصال کلاینت", icon: Phone },
   { id: "codecs", label: "کدک‌ها", icon: Volume2 },
   { id: "network", label: "شبکه & NAT", icon: Wifi },
   { id: "security", label: "TLS & SRTP", icon: Lock },
@@ -34,17 +35,16 @@ function ToggleSwitch({ value, onChange }: { value: boolean; onChange: (v: boole
   );
 }
 
-function ConfigField({ label, value, type = "text", mono = false }: {
-  label: string; value: string; type?: string; mono?: boolean
+function ConfigField({ label, value, onChange, type = "text", mono = false }: {
+  label: string; value: string; onChange?: (v: string) => void; type?: string; mono?: boolean
 }) {
-  const [val, setVal] = useState(value);
   return (
     <div>
       <label className="text-xs mb-1 block" style={{ color: "#8e8ea0" }}>{label}</label>
       <input
         type={type}
-        value={val}
-        onChange={e => setVal(e.target.value)}
+        value={value}
+        onChange={e => onChange?.(e.target.value)}
         className="w-full px-3 py-2 rounded-lg text-sm outline-none"
         style={{
           background: "rgba(255,255,255,0.04)",
@@ -60,10 +60,21 @@ function ConfigField({ label, value, type = "text", mono = false }: {
 export function Settings() {
   const [activeTab, setActiveTab] = useState("server");
   const [saved, setSaved] = useState(false);
+  
+  const settings = useAppStore();
+  const setSettings = useAppStore(state => state.setSettings);
+  
   const [config, setConfig] = useState({
-    motherNumber: MOTHER_NUMBER,
-    serverIp: SERVER_IP,
-    sipPort: SERVER_PORT,
+    motherNumber: settings.motherNumber,
+    serverIp: settings.serverIp,
+    sipPort: settings.sipPort,
+    wsPort: settings.wsPort,
+    extension: settings.extension,
+    sipPassword: settings.sipPassword,
+    autoAnswer: settings.autoAnswer,
+    wssEnabled: settings.wssEnabled,
+    displayName: settings.displayName,
+    // Mock settings
     tlsEnabled: true,
     srtpEnabled: true,
     natEnabled: true,
@@ -86,6 +97,22 @@ export function Settings() {
   });
 
   const handleSave = () => {
+    setSettings({
+      serverIp: config.serverIp,
+      sipPort: config.sipPort,
+      wsPort: config.wsPort,
+      motherNumber: config.motherNumber,
+      extension: config.extension,
+      sipPassword: config.sipPassword,
+      autoAnswer: config.autoAnswer,
+      wssEnabled: config.wssEnabled,
+      displayName: config.displayName
+    });
+    
+    // Re-initialize SIP service with new settings
+    sipService.stop();
+    setTimeout(() => sipService.init(), 500);
+
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -106,16 +133,16 @@ export function Settings() {
       case "server":
         return (
           <div className="grid grid-cols-2 gap-4">
-            <ConfigField label="IP سرور" value={config.serverIp} mono />
-            <ConfigField label="پورت SIP (UDP/TCP)" value={config.sipPort} mono />
-            <ConfigField label="شماره مادر" value={config.motherNumber} mono />
-            <ConfigField label="دامنه SIP" value="voip.mother.local" />
+            <ConfigField label="IP/دامنه سرور (Asterisk/FreePBX)" value={config.serverIp} onChange={v => setConfig({...config, serverIp: v})} mono />
+            <ConfigField label="پورت SIP (UDP/TCP)" value={config.sipPort} onChange={v => setConfig({...config, sipPort: v})} mono />
+            <ConfigField label="پورت WebSocket (WebRTC)" value={config.wsPort} onChange={v => setConfig({...config, wsPort: v})} mono />
+            <ConfigField label="شماره مادر" value={config.motherNumber} onChange={v => setConfig({...config, motherNumber: v})} mono />
             <ConfigField label="IP خارجی (NAT)" value="auto" mono />
             <ConfigField label="Hostname" value="voip.mother.local" />
             <div className="col-span-2 grid grid-cols-3 gap-3">
               {[
-                { label: "ضبط تماس", key: "recordingEnabled" },
-                { label: "پیام صوتی", key: "voicemailEnabled" },
+                { label: "WSS/Secure WebSocket", key: "wssEnabled" },
+                { label: "پاسخگویی خودکار (Auto Answer)", key: "autoAnswer" },
                 { label: "کنفرانس", key: "conferenceEnabled" },
               ].map(item => (
                 <div key={item.key} className="flex items-center justify-between p-3 rounded-lg"
@@ -134,12 +161,10 @@ export function Settings() {
       case "sip":
         return (
           <div className="grid grid-cols-2 gap-4">
+            <ConfigField label="شماره داخلی (Extension)" value={config.extension} onChange={v => setConfig({...config, extension: v})} mono />
+            <ConfigField label="رمز عبور SIP (Secret)" value={config.sipPassword} onChange={v => setConfig({...config, sipPassword: v})} type="password" />
+            <ConfigField label="نام نمایشی (Display Name)" value={config.displayName} onChange={v => setConfig({...config, displayName: v})} />
             <ConfigField label="حداکثر تماس همزمان" value={config.maxCalls} />
-            <ConfigField label="Qualify Frequency (s)" value={config.qualifyFreq} />
-            <ConfigField label="Max Expiry (s)" value="3600" />
-            <ConfigField label="Min Expiry (s)" value="60" />
-            <ConfigField label="Default Expiry (s)" value="120" />
-            <ConfigField label="Max Registrations" value="10" />
             <div className="col-span-2 grid grid-cols-2 gap-3">
               {[
                 { label: "NAT Support", key: "natEnabled" },

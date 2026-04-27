@@ -4,14 +4,17 @@ import {
   AreaChart, Area, PieChart, Pie, Cell, ResponsiveContainer,
   Tooltip, XAxis, YAxis, CartesianGrid
 } from "recharts";
+import { useLiveQuery } from "dexie-react-hooks";
+import { db } from "../services/db";
+import { useAppStore } from "../store/useAppStore";
 import {
   Phone, PhoneIncoming, PhoneOutgoing, PhoneMissed,
   Users, Clock, Activity, TrendingUp, Server, Wifi,
   Shield, Voicemail, GitBranch, Zap, Database, Cpu
 } from "lucide-react";
 import {
-  extensions, activeCalls, callHistory, callVolumeData,
-  codecDistribution, MOTHER_NUMBER, SERVER_IP, formatDuration
+  extensions, activeCalls, callVolumeData,
+  codecDistribution, formatDuration
 } from "../data/voipData";
 
 const StatCard = ({ icon: Icon, label, value, sublabel, color, trend }: any) => (
@@ -51,6 +54,9 @@ const StatCard = ({ icon: Icon, label, value, sublabel, color, trend }: any) => 
 export function Dashboard() {
   const [tick, setTick] = useState(0);
   const [waveData, setWaveData] = useState<number[]>([]);
+  
+  const { serverIp, motherNumber, extension, isConnected, registrationStatus, activeCallsCount } = useAppStore();
+  const dbCalls = useLiveQuery(() => db.calls.toArray()) || [];
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -63,8 +69,9 @@ export function Dashboard() {
   const onlineCount = extensions.filter(e => e.status !== "offline").length;
   const availableCount = extensions.filter(e => e.status === "available").length;
   const busyCount = extensions.filter(e => e.status === "busy").length;
-  const answeredCalls = callHistory.filter(c => c.disposition === "ANSWERED").length;
-  const totalDuration = callHistory.reduce((sum, c) => sum + c.billsec, 0);
+  
+  const answeredCalls = dbCalls.filter(c => c.status === "answered").length;
+  const totalDuration = dbCalls.reduce((sum, c) => sum + (c.duration || 0), 0);
 
   const statusColors: Record<string, string> = {
     available: "#30d158",
@@ -83,17 +90,17 @@ export function Dashboard() {
             داشبورد مرکز VOIP مادر
           </h1>
           <p className="text-sm" style={{ color: "#6e6e80" }}>
-            سرور: {SERVER_IP} | شماره مادر: {MOTHER_NUMBER} | Asterisk 18.18
+            سرور: {serverIp} | شماره مادر: {motherNumber} | داخلی: {extension}
           </p>
         </motion.div>
       </div>
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <StatCard icon={PhoneIncoming} label="تماس‌های فعال" value={activeCalls.length} sublabel="در حال مکالمه" color="#00d4ff" trend="+2" />
+        <StatCard icon={PhoneIncoming} label="تماس‌های فعال" value={activeCallsCount} sublabel="در حال مکالمه" color="#00d4ff" trend={activeCallsCount > 0 ? "+1" : "0"} />
         <StatCard icon={Users} label="کاربران آنلاین" value={`${onlineCount}/10`} sublabel={`${availableCount} آماده`} color="#30d158" trend="↑87%" />
-        <StatCard icon={Phone} label="تماس امروز" value="84" sublabel={`${answeredCalls} پاسخ داده`} color="#bf5af2" trend="+12%" />
-        <StatCard icon={Clock} label="مجموع دقایق" value={Math.round(totalDuration / 60)} sublabel="دقیقه امروز" color="#ff9f0a" trend="+8%" />
+        <StatCard icon={Phone} label="کل تماس‌ها" value={dbCalls.length} sublabel={`${answeredCalls} پاسخ داده`} color="#bf5af2" trend="+12%" />
+        <StatCard icon={Clock} label="مجموع دقایق" value={Math.round(totalDuration / 60)} sublabel="دقیقه مکالمه" color="#ff9f0a" trend="+8%" />
       </div>
 
       {/* Secondary stats */}
@@ -245,36 +252,34 @@ export function Dashboard() {
         >
           <h3 className="text-sm mb-3" style={{ color: "#e0e0f0" }}>آخرین تماس‌ها</h3>
           <div className="space-y-2">
-            {callHistory.slice(0, 5).map((call) => {
-              const isAnswered = call.disposition === "ANSWERED";
-              const isMissed = call.disposition === "NO ANSWER";
-              const isBusy = call.disposition === "BUSY";
-              const color = isAnswered ? "#30d158" : isMissed ? "#ff375f" : "#ff9f0a";
-              const Icon = isAnswered ? PhoneIncoming : isMissed ? PhoneMissed : PhoneOutgoing;
-              return (
-                <div key={call.id} className="flex items-center gap-3 py-1.5">
-                  <div className="p-1.5 rounded-lg" style={{ background: `${color}15` }}>
-                    <Icon size={12} style={{ color }} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1">
-                      <span className="text-xs truncate" style={{ color: "#e0e0f0" }}>{call.srcName}</span>
-                      <span className="text-xs" style={{ color: "#4e4e60" }}>→</span>
-                      <span className="text-xs truncate" style={{ color: "#8e8ea0" }}>{call.dstName}</span>
+            {dbCalls.length > 0 ? (
+              dbCalls.sort((a, b) => b.timestamp - a.timestamp).slice(0, 5).map((call) => {
+                const isAnswered = call.status === "answered";
+                const isMissed = call.status === "no-answer";
+                const color = isAnswered ? "#30d158" : isMissed ? "#ff375f" : "#ff9f0a";
+                const Icon = isAnswered ? PhoneIncoming : isMissed ? PhoneMissed : PhoneOutgoing;
+                return (
+                  <div key={call.id} className="flex items-center gap-3 py-1.5 border-b" style={{ borderColor: 'rgba(255,255,255,0.02)' }}>
+                    <div className="p-1.5 rounded-lg" style={{ background: `${color}15` }}>
+                      <Icon size={12} style={{ color }} />
                     </div>
-                    <div className="text-xs" style={{ color: "#4e4e60" }}>
-                      {new Date(call.calldate).toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" })}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs truncate" style={{ color: "#e0e0f0" }}>{call.direction === 'outgoing' ? 'خروجی به ' : 'ورودی از '} {call.number}</span>
+                      </div>
+                      <div className="text-xs mt-0.5" style={{ color: "#4e4e60" }}>
+                        {new Date(call.timestamp).toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" })}
+                      </div>
+                    </div>
+                    <div className="text-xs text-right">
+                      <div style={{ color }}>{isAnswered ? formatDuration(call.duration) : call.status === "busy" ? "مشغول" : "بی‌پاسخ"}</div>
                     </div>
                   </div>
-                  <div className="text-xs text-right">
-                    <div style={{ color }}>{isAnswered ? formatDuration(call.billsec) : call.disposition === "BUSY" ? "مشغول" : "بی‌پاسخ"}</div>
-                    {call.recordingAvailable && (
-                      <div className="text-xs mt-0.5" style={{ color: "#4e4e60" }}>• ضبط</div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })
+            ) : (
+              <div className="text-xs text-center py-4" style={{ color: "#4e4e60" }}>هیچ تماسی ثبت نشده است</div>
+            )}
           </div>
         </motion.div>
       </div>
@@ -285,11 +290,11 @@ export function Dashboard() {
         animate={{ opacity: 1 }}
         transition={{ delay: 0.3 }}
         className="mt-4 rounded-xl p-3 flex items-center gap-3"
-        style={{ background: "rgba(10,12,30,0.8)", border: "1px solid rgba(0,212,255,0.08)" }}
+        style={{ background: "rgba(10,12,30,0.8)", border: `1px solid ${isConnected ? "rgba(48,209,88,0.15)" : "rgba(255,55,95,0.15)"}` }}
       >
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          <Zap size={14} style={{ color: "#00d4ff" }} />
-          <span className="text-xs" style={{ color: "#6e6e80" }}>Audio Stream Live</span>
+          <Zap size={14} style={{ color: isConnected ? "#30d158" : "#ff375f" }} />
+          <span className="text-xs" style={{ color: "#6e6e80" }}>SIP Stream Live</span>
         </div>
         <div className="flex-1 flex items-end gap-0.5 h-8">
           {waveData.map((v, i) => (
@@ -297,16 +302,16 @@ export function Dashboard() {
               key={i}
               className="flex-1 rounded-sm transition-all duration-200"
               style={{
-                height: `${v}%`,
-                background: `hsl(${190 + i * 3}, 90%, 60%)`,
+                height: `${isConnected ? v : 5}%`,
+                background: isConnected ? `hsl(${100 + i * 3}, 90%, 60%)` : `hsl(350, 80%, 40%)`,
                 opacity: 0.7,
               }}
             />
           ))}
         </div>
         <div className="flex items-center gap-3 flex-shrink-0 text-xs">
-          <div style={{ color: "#30d158" }}><Cpu size={12} className="inline mr-1" />SIP OK</div>
-          <div style={{ color: "#00d4ff" }}><Wifi size={12} className="inline mr-1" />RTP OK</div>
+          <div style={{ color: registrationStatus === 'registered' ? "#30d158" : "#ff375f" }}><Cpu size={12} className="inline mr-1" />SIP {registrationStatus.toUpperCase()}</div>
+          <div style={{ color: isConnected ? "#00d4ff" : "#ff375f" }}><Wifi size={12} className="inline mr-1" />WS {isConnected ? "OK" : "ERR"}</div>
           <div style={{ color: "#bf5af2" }}><Activity size={12} className="inline mr-1" />Q:98%</div>
         </div>
       </motion.div>

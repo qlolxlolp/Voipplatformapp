@@ -9,8 +9,14 @@ import { Conference } from "./pages/Conference";
 import { IVR } from "./pages/IVR";
 import { Security } from "./pages/Security";
 import { Settings } from "./pages/Settings";
+import { Login } from "./pages/Login";
+import { NotFound } from "./pages/NotFound";
 
 export const router = createBrowserRouter([
+  {
+    path: "/login",
+    Component: Login,
+  },
   {
     path: "/",
     Component: Layout,
@@ -25,5 +31,9 @@ export const router = createBrowserRouter([
       { path: "security", Component: Security },
       { path: "settings", Component: Settings },
     ],
+  },
+  {
+    path: "*",
+    Component: NotFound,
   },
 ]);

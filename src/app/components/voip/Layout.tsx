@@ -6,7 +6,8 @@ import {
   Voicemail, GitBranch, Shield, Settings, Menu, X,
   Wifi, WifiOff, Activity, Bell, Server, Radio
 } from "lucide-react";
-import { MOTHER_NUMBER, SERVER_IP } from "../../data/voipData";
+import { useAppStore } from "../../store/useAppStore";
+import { sipService } from "../../services/sipManager";
 
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "داشبورد", labelEn: "Dashboard" },
@@ -22,10 +23,12 @@ const navItems = [
 
 export function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [serverOnline, setServerOnline] = useState(true);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [waveValues, setWaveValues] = useState<number[]>([]);
   const location = useLocation();
+
+  // Load from real store
+  const { isConnected, activeCallsCount, registrationStatus, serverIp, motherNumber, extension, sipPort } = useAppStore();
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -39,16 +42,33 @@ export function Layout() {
     return () => clearInterval(interval);
   }, []);
 
+  // Initialize SIP Service
   useEffect(() => {
-    // Simulate occasional server state changes
-    const timer = setInterval(() => {
-      setServerOnline(true);
-    }, 30000);
-    return () => clearInterval(timer);
-  }, []);
+    // Only attempt init if serverIp is somewhat valid to avoid crashing
+    if (serverIp && serverIp.length > 6) {
+      // Small timeout to let UI mount
+      const t = setTimeout(() => sipService.init(), 1000);
+      return () => {
+        clearTimeout(t);
+        sipService.stop();
+      };
+    }
+  }, [serverIp, sipPort, extension]);
 
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString("fa-IR", { hour12: false });
+  };
+
+  const getStatusColor = () => {
+    if (registrationStatus === 'registered') return '#30d158';
+    if (registrationStatus === 'registering') return '#ff9f0a';
+    return '#ff375f';
+  };
+
+  const getStatusText = () => {
+    if (registrationStatus === 'registered') return 'ONLINE';
+    if (registrationStatus === 'registering') return 'CONNECTING';
+    return 'OFFLINE';
   };
 
   return (
@@ -116,10 +136,10 @@ export function Layout() {
                 <div className="rounded-lg p-2.5 mt-2" style={{ background: "rgba(0,212,255,0.05)", border: "1px solid rgba(0,212,255,0.1)" }}>
                   <div className="text-xs mb-1" style={{ color: "#4e4e60" }}>شماره مادر</div>
                   <div className="text-sm font-mono flex items-center gap-2" style={{ color: "#00d4ff" }}>
-                    <div className="w-2 h-2 rounded-full status-dot-available" />
-                    {MOTHER_NUMBER}
+                    <div className="w-2 h-2 rounded-full status-dot-available" style={{ background: getStatusColor() }} />
+                    {motherNumber || "ثبت نشده"}
                   </div>
-                  <div className="text-xs mt-0.5" style={{ color: "#4e4e60" }}>SERVER: {SERVER_IP}:5060</div>
+                  <div className="text-xs mt-0.5" style={{ color: "#4e4e60" }}>EXT: {extension} | {serverIp}:{sipPort}</div>
                 </div>
               </div>
 
@@ -177,22 +197,30 @@ export function Layout() {
 
               {/* Server status */}
               <div className="px-4 py-4" style={{ borderTop: "1px solid rgba(0,212,255,0.08)" }}>
-                <div className="rounded-lg p-3" style={{ background: "rgba(48,209,88,0.05)", border: "1px solid rgba(48,209,88,0.1)" }}>
+                <div className="rounded-lg p-3 mb-3" style={{ background: `${getStatusColor()}10`, border: `1px solid ${getStatusColor()}20` }}>
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      <Server size={13} style={{ color: "#30d158" }} />
-                      <span className="text-xs" style={{ color: "#30d158" }}>Asterisk Server</span>
+                      <Server size={13} style={{ color: getStatusColor() }} />
+                      <span className="text-xs" style={{ color: getStatusColor() }}>Asterisk / SIP</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <div className="w-1.5 h-1.5 rounded-full" style={{ background: "#30d158", boxShadow: "0 0 4px #30d158" }} />
-                      <span className="text-xs" style={{ color: "#30d158" }}>ONLINE</span>
+                      <div className="w-1.5 h-1.5 rounded-full" style={{ background: getStatusColor(), boxShadow: `0 0 4px ${getStatusColor()}` }} />
+                      <span className="text-xs" style={{ color: getStatusColor() }}>{getStatusText()}</span>
                     </div>
                   </div>
                   <div className="text-xs" style={{ color: "#4e4e60" }}>
                     <div>{formatTime(currentTime)}</div>
-                    <div className="mt-0.5">SIP/IAX2 Ready</div>
+                    <div className="mt-0.5">{isConnected ? "WebSocket Connected" : "WebSocket Disconnected"}</div>
                   </div>
                 </div>
+
+                <NavLink
+                  to="/login"
+                  className="flex items-center justify-center gap-2 py-2 rounded-lg text-xs transition-all duration-200"
+                  style={{ background: "rgba(255,55,95,0.1)", border: "1px solid rgba(255,55,95,0.2)", color: "#ff375f" }}
+                >
+                  خروج از سیستم
+                </NavLink>
               </div>
             </motion.div>
           )}
@@ -234,19 +262,19 @@ export function Layout() {
             {/* Live stats bar */}
             <div className="flex items-center gap-4 text-xs" style={{ color: "#6e6e80" }}>
               <div className="flex items-center gap-1.5">
-                <Activity size={12} style={{ color: "#00d4ff" }} />
-                <span style={{ color: "#00d4ff" }}>4</span>
+                <Activity size={12} style={{ color: activeCallsCount > 0 ? "#00d4ff" : "#6e6e80" }} />
+                <span style={{ color: activeCallsCount > 0 ? "#00d4ff" : "#6e6e80" }}>{activeCallsCount}</span>
                 <span>تماس فعال</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <Users size={12} style={{ color: "#30d158" }} />
-                <span style={{ color: "#30d158" }}>7</span>
+                <span style={{ color: "#30d158" }}>1</span>
                 <span>آنلاین</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <Wifi size={12} style={{ color: serverOnline ? "#30d158" : "#ff375f" }} />
-                <span style={{ color: serverOnline ? "#30d158" : "#ff375f" }}>
-                  {serverOnline ? "متصل" : "قطع"}
+                <Wifi size={12} style={{ color: isConnected ? "#30d158" : "#ff375f" }} />
+                <span style={{ color: isConnected ? "#30d158" : "#ff375f" }}>
+                  {isConnected ? "متصل" : "قطع"}
                 </span>
               </div>
             </div>

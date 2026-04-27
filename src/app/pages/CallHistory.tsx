@@ -5,17 +5,19 @@ import {
   Download, Play, Search, Filter, Calendar,
   TrendingUp, Clock, Phone
 } from "lucide-react";
-import { callHistory, formatDuration, type CallRecord } from "../data/voipData";
+import { useLiveQuery } from "dexie-react-hooks";
+import { db, type CallLog } from "../services/db";
+import { formatDuration } from "../data/voipData";
 
 const dispositionConfig = {
-  "ANSWERED": { label: "پاسخ داده", color: "#30d158", Icon: PhoneIncoming },
-  "NO ANSWER": { label: "بی‌پاسخ", color: "#ff375f", Icon: PhoneMissed },
-  "BUSY": { label: "مشغول", color: "#ff9f0a", Icon: PhoneOff },
-  "FAILED": { label: "ناموفق", color: "#6e6e73", Icon: PhoneOff },
+  "answered": { label: "پاسخ داده", color: "#30d158", Icon: PhoneIncoming },
+  "no-answer": { label: "بی‌پاسخ", color: "#ff375f", Icon: PhoneMissed },
+  "busy": { label: "مشغول", color: "#ff9f0a", Icon: PhoneOff },
+  "failed": { label: "ناموفق", color: "#6e6e73", Icon: PhoneOff },
 };
 
-function CallRow({ call, index }: { call: CallRecord; index: number }) {
-  const cfg = dispositionConfig[call.disposition];
+function CallRow({ call, index }: { call: CallLog; index: number }) {
+  const cfg = dispositionConfig[call.status];
   const [playing, setPlaying] = useState(false);
 
   const isInternal = (num: string) => num.length <= 4;
@@ -42,23 +44,18 @@ function CallRow({ call, index }: { call: CallRecord; index: number }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
           <div className="flex items-center gap-1">
-            <span className="text-sm" style={{ color: "#e0e0f0" }}>{call.srcName}</span>
-            {!isInternal(call.src) && (
+            <span className="text-sm" style={{ color: "#e0e0f0" }}>{call.direction === 'outgoing' ? 'شما' : call.name}</span>
+            {!isInternal(call.number) && (
               <span className="text-xs px-1 rounded" style={{ background: "rgba(0,212,255,0.1)", color: "#00d4ff" }}>خارجی</span>
             )}
           </div>
           <span style={{ color: "#3e3e50" }}>→</span>
           <div className="flex items-center gap-1">
-            <span className="text-sm" style={{ color: "#8e8ea0" }}>{call.dstName}</span>
-            {!isInternal(call.dst) && (
-              <span className="text-xs px-1 rounded" style={{ background: "rgba(191,90,242,0.1)", color: "#bf5af2" }}>خارجی</span>
-            )}
+            <span className="text-sm" style={{ color: "#8e8ea0" }}>{call.direction === 'incoming' ? 'شما' : call.name}</span>
           </div>
         </div>
         <div className="flex items-center gap-3 mt-0.5">
-          <span className="text-xs font-mono" style={{ color: "#4e4e60" }}>{call.src}</span>
-          <span className="text-xs" style={{ color: "#3e3e50" }}>→</span>
-          <span className="text-xs font-mono" style={{ color: "#4e4e60" }}>{call.dst}</span>
+          <span className="text-xs font-mono" style={{ color: "#4e4e60" }}>{call.number}</span>
         </div>
       </div>
 
@@ -71,26 +68,23 @@ function CallRow({ call, index }: { call: CallRecord; index: number }) {
       {/* Duration */}
       <div className="text-right flex-shrink-0 w-16">
         <div className="text-sm font-mono" style={{ color: "#e0e0f0" }}>
-          {call.disposition === "ANSWERED" ? formatDuration(call.billsec) : "-"}
-        </div>
-        <div className="text-xs" style={{ color: "#4e4e60" }}>
-          {formatDuration(call.duration)} کل
+          {call.status === "answered" ? formatDuration(call.duration) : "-"}
         </div>
       </div>
 
       {/* Time */}
       <div className="text-right flex-shrink-0 w-20">
         <div className="text-xs" style={{ color: "#8e8ea0" }}>
-          {new Date(call.calldate).toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+          {new Date(call.timestamp).toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
         </div>
         <div className="text-xs" style={{ color: "#4e4e60" }}>
-          {new Date(call.calldate).toLocaleDateString("fa-IR")}
+          {new Date(call.timestamp).toLocaleDateString("fa-IR")}
         </div>
       </div>
 
       {/* Actions */}
       <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-all">
-        {call.recordingAvailable && (
+        {call.status === 'answered' && (
           <>
             <button
               onClick={() => setPlaying(!playing)}
@@ -114,15 +108,16 @@ export function CallHistory() {
   const [search, setSearch] = useState("");
   const [filterDisposition, setFilterDisposition] = useState("all");
 
-  const filtered = callHistory.filter(call => {
-    const matchSearch = call.srcName.includes(search) || call.dstName.includes(search) ||
-      call.src.includes(search) || call.dst.includes(search);
-    const matchFilter = filterDisposition === "all" || call.disposition === filterDisposition;
-    return matchSearch && matchFilter;
-  });
+  const callHistory = useLiveQuery(() => db.calls.toArray()) || [];
 
-  const answered = callHistory.filter(c => c.disposition === "ANSWERED");
-  const totalAnsweredBillsec = answered.reduce((sum, c) => sum + c.billsec, 0);
+  const filtered = callHistory.filter(call => {
+    const matchSearch = call.name.includes(search) || call.number.includes(search);
+    const matchFilter = filterDisposition === "all" || call.status === filterDisposition;
+    return matchSearch && matchFilter;
+  }).sort((a, b) => b.timestamp - a.timestamp);
+
+  const answered = callHistory.filter(c => c.status === "answered");
+  const totalAnsweredBillsec = answered.reduce((sum, c) => sum + (c.duration || 0), 0);
   const avgDuration = answered.length ? Math.round(totalAnsweredBillsec / answered.length) : 0;
 
   return (
@@ -131,7 +126,7 @@ export function CallHistory() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-lg mb-0.5" style={{ color: "#e0e0f0" }}>تاریخچه تماس (CDR)</h1>
-          <p className="text-xs" style={{ color: "#6e6e80" }}>گزارش کامل تماس‌های Asterisk</p>
+          <p className="text-xs" style={{ color: "#6e6e80" }}>گزارش کامل تماس‌های ثبت شده در دیتابیس محلی</p>
         </div>
         <button className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs"
           style={{ background: "rgba(48,209,88,0.1)", border: "1px solid rgba(48,209,88,0.2)", color: "#30d158" }}>
@@ -177,9 +172,9 @@ export function CallHistory() {
         <div className="flex gap-2">
           {[
             { key: "all", label: "همه" },
-            { key: "ANSWERED", label: "پاسخ داده" },
-            { key: "NO ANSWER", label: "بی‌پاسخ" },
-            { key: "BUSY", label: "مشغول" },
+            { key: "answered", label: "پاسخ داده" },
+            { key: "no-answer", label: "بی‌پاسخ" },
+            { key: "busy", label: "مشغول" },
           ].map(f => (
             <button
               key={f.key}
